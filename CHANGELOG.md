@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Crashes caused by the `Cannot destroy the root instance of a WeakDom` error ([#257](https://github.com/argon-rbx/argon/issues/257))
+- Crashes caused by the `Attempted to remove instance with no source` error ([#280](https://github.com/argon-rbx/argon/issues/280))
+
 ## [2.0.28] - 2026-03-04
 
 ### Added

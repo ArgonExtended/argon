@@ -725,7 +725,7 @@ pub fn apply_removal(id: Ref, tree: &mut Tree, vfs: &Vfs) -> Result<()> {
 
 			project.save(path)?;
 		}
-		SourceKind::None => panic!("Attempted to remove instance with no source: {id:?}"),
+		SourceKind::None => error!("Attempted to remove instance with no source: {id:?}"),
 	}
 
 	tree.remove_instance(id);

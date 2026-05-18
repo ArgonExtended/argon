@@ -222,28 +222,22 @@ pub fn init_ts(workspace: WorkspaceConfig) -> Result<Option<PathBuf>> {
 		}
 
 		match path.get_stem() {
-			"wally" => {
-				if workspace.wally || template == "package" {
-					let contents = fs::read_to_string(path)?;
-					let contents = contents.replace("$name", &project_name.to_lowercase());
-					let contents = contents.replace("$author", &util::get_username().to_lowercase());
+			"wally" if (workspace.wally || template == "package") => {
+				let contents = fs::read_to_string(path)?;
+				let contents = contents.replace("$name", &project_name.to_lowercase());
+				let contents = contents.replace("$author", &util::get_username().to_lowercase());
 
-					fs::write(new_path, contents)?;
-				}
+				fs::write(new_path, contents)?;
 			}
-			"README" | "CHANGELOG" => {
-				if workspace.docs {
-					let contents = fs::read_to_string(path)?;
-					let contents = contents.replace("$name", project_name);
+			"README" | "CHANGELOG" if workspace.docs => {
+				let contents = fs::read_to_string(path)?;
+				let contents = contents.replace("$name", project_name);
 
-					fs::write(new_path, contents)?;
-				}
+				fs::write(new_path, contents)?;
 			}
-			"LICENSE" => {
-				if workspace.docs || workspace.license.force {
-					let fallback = fs::read_to_string(path)?;
-					add_license(&new_path, workspace.license.inner, &fallback)?;
-				}
+			"LICENSE" if (workspace.docs || workspace.license.force) => {
+				let fallback = fs::read_to_string(path)?;
+				add_license(&new_path, workspace.license.inner, &fallback)?;
 			}
 
 			_ => {}

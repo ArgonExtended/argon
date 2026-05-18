@@ -1,3 +1,4 @@
+use log::error;
 use multimap::MultiMap;
 use rbx_dom_weak::{types::Ref, Instance, InstanceBuilder, WeakDom};
 use std::{
@@ -77,6 +78,11 @@ impl Tree {
 	}
 
 	pub fn remove_instance(&mut self, id: Ref) {
+		if id == self.root_ref() {
+			error!("Attempted to remove root instance: {id:?}");
+			return;
+		}
+
 		let mut to_remove = vec![id];
 
 		fn walk(id: Ref, dom: &WeakDom, to_remove: &mut Vec<Ref>) {
