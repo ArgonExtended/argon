@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use log::trace;
-use rbx_dom_weak::{types::Ref, Ustr};
+use rbx_dom_weak::{types::Ref, Ustr, WeakDom};
 use serde::Serialize;
 use snapshot::AddedSnapshot;
 use std::{
@@ -24,6 +24,7 @@ pub mod meta;
 pub mod processor;
 pub mod queue;
 pub mod snapshot;
+pub mod syncback;
 pub mod tree;
 
 pub struct Core {
@@ -172,6 +173,15 @@ impl Core {
 		stats::projects_built(1);
 
 		Ok(())
+	}
+
+	/// Apply an offline syncback: diff a loaded `dom` against the tree and write
+	/// the resulting changes to the filesystem.
+	pub fn syncback(&self, dom: WeakDom, prune: bool) -> Result<syncback::SyncbackSummary> {
+		let project = self.project();
+		let mut tree = lock!(self.tree);
+
+		syncback::syncback(&project, dom, &mut tree, &self._vfs, prune)
 	}
 
 	/// Write sourcemap of the tree
