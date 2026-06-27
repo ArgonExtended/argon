@@ -52,11 +52,150 @@ fn ref_from_bytes<'de, D: Deserializer<'de>>(d: D) -> Result<Ref, D::Error> {
 
 use crate::{
 	argon_info,
-	core::{processor::WriteRequest, snapshot::AddedSnapshot, Core},
+	core::{
+		changes::Changes,
+		meta::Meta,
+		processor::WriteRequest,
+		snapshot::{AddedSnapshot, Snapshot, UpdatedSnapshot},
+		Core,
+	},
 	project::ProjectDetails,
 	server::{self, Message},
-	studio,
+	studio, Properties,
 };
+use rbx_dom_weak::Ustr;
+
+fn vec_ref_from_bytes<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Ref>, D::Error> {
+	struct Seed;
+	impl<'de> de::DeserializeSeed<'de> for Seed {
+		type Value = Ref;
+		fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Ref, D::Error> {
+			ref_from_bytes(d)
+		}
+	}
+	struct V;
+	impl<'de> Visitor<'de> for V {
+		type Value = Vec<Ref>;
+		fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+			write!(f, "sequence of referents")
+		}
+		fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<Ref>, A::Error> {
+			let mut out = Vec::new();
+			while let Some(r) = seq.next_element_seed(Seed)? {
+				out.push(r);
+			}
+			Ok(out)
+		}
+	}
+	d.deserialize_seq(V)
+}
+
+#[derive(Debug, Deserialize)]
+struct WsSnapshot {
+	#[serde(deserialize_with = "ref_from_bytes")]
+	id: Ref,
+	meta: Meta,
+	name: String,
+	class: Ustr,
+	properties: Properties,
+	children: Vec<WsSnapshot>,
+}
+
+impl From<WsSnapshot> for Snapshot {
+	fn from(s: WsSnapshot) -> Self {
+		Snapshot {
+			id: s.id,
+			meta: s.meta,
+			name: s.name,
+			class: s.class,
+			properties: s.properties,
+			children: s.children.into_iter().map(Into::into).collect(),
+		}
+	}
+}
+
+#[derive(Debug, Deserialize)]
+struct WsAddedSnapshot {
+	#[serde(deserialize_with = "ref_from_bytes")]
+	id: Ref,
+	meta: Meta,
+	#[serde(deserialize_with = "ref_from_bytes")]
+	parent: Ref,
+	name: String,
+	class: Ustr,
+	properties: Properties,
+	children: Vec<WsSnapshot>,
+}
+
+impl From<WsAddedSnapshot> for AddedSnapshot {
+	fn from(s: WsAddedSnapshot) -> Self {
+		AddedSnapshot {
+			id: s.id,
+			meta: s.meta,
+			parent: s.parent,
+			name: s.name,
+			class: s.class,
+			properties: s.properties,
+			children: s.children.into_iter().map(Into::into).collect(),
+		}
+	}
+}
+
+#[derive(Debug, Deserialize)]
+struct WsUpdatedSnapshot {
+	#[serde(deserialize_with = "ref_from_bytes")]
+	id: Ref,
+	meta: Option<Meta>,
+	name: Option<String>,
+	class: Option<Ustr>,
+	properties: Option<Properties>,
+}
+
+impl From<WsUpdatedSnapshot> for UpdatedSnapshot {
+	fn from(s: WsUpdatedSnapshot) -> Self {
+		UpdatedSnapshot {
+			id: s.id,
+			meta: s.meta,
+			name: s.name,
+			class: s.class,
+			properties: s.properties,
+		}
+	}
+}
+
+#[derive(Debug, Deserialize)]
+struct WsChanges {
+	additions: Vec<WsAddedSnapshot>,
+	updates: Vec<WsUpdatedSnapshot>,
+	#[serde(deserialize_with = "vec_ref_from_bytes")]
+	removals: Vec<Ref>,
+}
+
+impl From<WsChanges> for Changes {
+	fn from(c: WsChanges) -> Self {
+		Changes {
+			additions: c.additions.into_iter().map(Into::into).collect(),
+			updates: c.updates.into_iter().map(Into::into).collect(),
+			removals: c.removals,
+		}
+	}
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WsWriteRequest {
+	changes: WsChanges,
+	client_id: u32,
+}
+
+impl From<WsWriteRequest> for WriteRequest {
+	fn from(r: WsWriteRequest) -> Self {
+		WriteRequest {
+			changes: r.changes.into(),
+			client_id: r.client_id,
+		}
+	}
+}
 
 // Wire protocol
 //
@@ -77,7 +216,7 @@ struct InFrame {
 enum InPayload {
 	Subscribe { #[serde(rename = "clientId")] client_id: u32, name: String },
 	Unsubscribe,
-	Write(WriteRequest),
+	Write(WsWriteRequest),
 	Snapshot { #[serde(deserialize_with = "ref_from_bytes")] instance: Ref },
 	Details,
 	Open { #[serde(deserialize_with = "ref_from_bytes")] instance: Ref, #[serde(rename = "line")] _line: u32 },
@@ -248,7 +387,7 @@ async fn dispatch(
 			return false;
 		}
 		InPayload::Write(req) => {
-			core.processor().write(req);
+			core.processor().write(req.into());
 			send(session, id, OutPayload::Ok).await;
 		}
 		InPayload::Snapshot { instance } => {
